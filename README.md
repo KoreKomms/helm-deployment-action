@@ -1,2 +1,100 @@
-# k8s-configmap-secrets-deployment-action
-Githbub Action to deploy Github Variables and Secrets to Kubernetes
+# Helm Deployment Action
+
+[![⌛️ Build](https://github.com/KoreKomms/helm-deployment-action/actions/workflows/pr-checks.yml/badge.svg?branch=main)](https://github.com/KoreKomms/helm-deployment-action/actions/workflows/pr-checks.yml)
+
+
+Github Action to deploy Helm Charts. Support deployment of Variables and Secrets to Kubernetes as ConfigMaps and Secrets.
+
+## Helm Chart Format
+
+The `values.yaml` needs to have variables for configuring secrets and configmaps.
+
+```yml
+config: []
+secrets: []
+```
+
+Both config and secrets must be array of objects with 2 fields:
+* `key`
+* `value`
+
+The corresponding configmap.yaml
+
+```yml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-configmap
+data:
+  {{- range .Values.config }}
+  {{ .key | quote }}: {{ .value | quote }}
+  {{- end }}
+```
+
+The corresponding secrets.yaml
+
+```yml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Release.Name }}-secret
+type: Opaque
+data:
+  {{- range .Values.secrets }}
+  {{ .key | quote }}: {{ .value | b64enc | quote }}
+  {{- end }}
+```
+
+## Github Variables & Secrets
+
+### Limitations
+
+The environment name must always be in uppercase, because Github uppercases the variable and secret names.
+
+The Github Variables and Secrets that need to be deployed must be in a particular format.
+
+* They must begin with `DEPLOYMENT_`
+* They can have a prefix (after the `DEPLOYMENT_`) - This is helpful if you have other secrets/variables that already begin with `DEPLOYMENT_`. For example, if the prefix is `PROJECTX`, the Secret/Variable name will need to start with `DEPLOYMENT_PROJECTX_`.
+* They can specify the deployment environment. You have the ability to use the same action for deploying to different environments. This part will be useful in that case. For example, for DEV environment specific Secrets/Variables, the name will then need to begin with `DEPLOYMENT_PROJECTX_DEV_`
+* The rest of the name can be anything, based on your readability.
+* The values will need to be in a very specific format too. They will need to be a Json object with 3 fields
+  * `key` - The secret/Config key
+  * `value` - The secret/Config value
+  * `chart` - The name of the Helm chart (or deployment, if the chart name is different from the deployment name), for which the secret/variable is applicable
+
+An example value can be something like this:
+
+```json
+{ "key": "db.username", "value": "postgres", "chart": "auth-service" }
+```
+
+## Example Action
+
+The following example action will deploy the `auth-service` Helm chart.
+
+```yml
+name: "⌛️ Deploy Helm Chart"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  helm-deploy:
+    steps:
+      - name: Deploy
+        uses: k0r0pt/helm-deploy@v1
+        with:
+          helmChartUrl: oci://myregistry.example.com/mycompanyinc/auth-service
+          helmChartVersion: 0.1.1
+          registryUsername: myhelmregistryuser
+          registryPassword: mySuperSecretPassword # Don't use this as your password, dahoy!
+          # name: auth-service - This is not needed since this name is the same as the chart name in the helmChartUrl above.
+          githubSecretVariablePrefix: PROJECTX
+          deploymentEnvironment: DEV # Note that Github always uppercases the secret and variable names
+          namespace: project-x
+          helmConfigMapVariableName: config
+          helmSecretVariableName: secrets
+          kubeConfig: ${{ secrets.KUBE_CONFIG }}
+          secrets: ${{ secrets | toJson }}
+          variables: ${{ vars | toJson }}
+```
