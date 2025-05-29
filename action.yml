@@ -1,0 +1,91 @@
+name: "Helm Deployment Action"
+description: "Deploy Github Variables and Secrets to Kubernetes"
+inputs:
+  helmChartUrl:
+    description: "The OCI Helm Chart URL"
+    required: true
+  helmChartVersion:
+    description: "The Helm Chart version. Only needed if a specific version needs to be deployed."
+  registryUsername:
+    description: "The Helm Chart Registry username, if needed."
+  registryPassword:
+    description: "The Helm Chart Registry password, if needed."
+  name:
+    description: "The Helm Deployment name that is to be deployed. Needed if the chart name and the deployment name need to be different"
+  githubSecretVariablePrefix:
+    description: "The Github Secret/Variable Prefix to be parsed for deployment"
+  deploymentEnvironment:
+    description: "The name of the Runtime environment. E.g. DEV, TEST, STAGING, UAT, PROD etc. Needs to match the context name in the Kube Config. Will default to the `current-context` in the Kube Config file for deployment. If provided, will be used in conjunction with the Github Secret/Variable Prefix. Only secrets or variables prefixed with `DEPLOYMENT_<prefix>[_<environment>]_<githubKeyName>` will be used"
+  namespace:
+    description: "The Kubernetes namespace to deploy to."
+    default: "default"
+  tag:
+    description: "The Docker image tag for the docker image that needs to be deployed."
+    required: true
+  helmConfigMapVariableName:
+    description: "The Helm chart variable name which is to be used to configure the Config Map. The variable datatype must be of array of objects - each object will have two fields - key and value"
+    default: "runtime-configmap"
+  helmSecretVariableName:
+    description: "The Helm chart variable name which is to be used to configure the Secret. The variable datatype must be of array of objects - each object will have two fields - key and value"
+    default: "runtime-secret"
+  kubeConfig:
+    description: "The Kube Config file"
+    required: true
+  secrets:
+    description: "The Github Secrets"
+  variables:
+    description: "The Github Variables"
+  dryRun:
+    description: "If true, this will just print the command and not actually deploy."
+    default: "false"
+runs:
+  using: "composite"
+  steps:
+    - name: Setup node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22.16.0
+    - name: Setup Helm
+      uses: azure/setup-helm@v4.3.0
+    - name: Write Kube Config to disk and setup Env
+      shell: bash
+      run: |
+        echo $KUBE_CONFIG > .kubeConfig
+        echo "REGISTRY=$(echo '${{ inputs.helmChartUrl }}' | cut -d '/' -f3)" >> ${GITHUB_ENV}
+        echo "NAME=$([ -z '${{ inputs.name }}'] && echo $(echo '${{ inputs.helmChartUrl }}' | awk -F/ '{print $NF}') || echo '${{ inputs.name }}')" >> ${GITHUB_ENV}
+        echo "DRY_RUN=${{ inputs.dryRun }}" >> ${GITHUB_ENV}
+      env:
+        KUBE_CONIFG: ${{ inputs.kubeConfig }}
+    - name: Helm Login
+      shell: bash
+      run: "[[ -z '${{ inputs.registryUsername }}' || -z '${{ inputs.registryPassword }}' ]] \
+        && ($DRY_RUN && echo 'No need to login to Helm registry.' || echo '') \
+        || helm registry login ${{ env.REGISTRY }} -u '${{ inputs.registryUsername }}' -p ${{ inputs.registryPassword }}"
+    - name: Install dependencies
+      shell: bash
+      run: npm i
+    - name: Build
+      shell: bash
+      run: npm run build
+    - name: Prep deployment command
+      shell: bash
+      run: |
+        $DRY_RUN && node dist/main.js || (echo "HELM_DEPLOYMENT_COMMAND=$(node dist/main.js)" >> ${GITHUB_ENV})
+      env:
+        DRY_RUN: ${{ env.DRY_RUN }}
+        HELM_CHART_URL: ${{ inputs.helmChartUrl }}
+        NAME: ${{ env.NAME }}
+        NAMESPACE: ${{ inputs.namespace }}
+        GITHUB_SECRETS: ${{ inputs.secrets }}
+        GITHUB_VARIABLES: ${{ inputs.variables }}
+        GITHUB_SECRET_VARIABLE_PREFIX: ${{ inputs.githubSecretVariablePrefix }}
+        DEPLOYMENT_ENVIRONMENT: ${{ inputs.deploymentEnvironment }}
+        TAG: ${{ inputs.tag }}
+        HELM_CONFIG_MAP_VARIABLE_NAME: ${{ inputs.helmConfigMapVariableName }}
+        HELM_SECRET_VARIABLE_NAME: ${{ inputs.helmSecretVariableName }}
+    - name: Deploy! Deploy! Deploy!
+      shell: bash
+      run: $DRY_RUN || eval $HELM_DEPLOYMENT_COMMAND
+branding:
+  icon: "upload-cloud"
+  color: "blue"
