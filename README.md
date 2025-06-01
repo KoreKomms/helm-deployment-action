@@ -3,19 +3,24 @@
 [![⌛️ Build](https://github.com/KoreKomms/helm-deployment-action/actions/workflows/pr-checks.yml/badge.svg?branch=main)](https://github.com/KoreKomms/helm-deployment-action/actions/workflows/pr-checks.yml)
 
 
-Github Action to deploy Helm Charts. Support deployment of Variables and Secrets to Kubernetes as ConfigMaps and Secrets.
+Github Action to deploy Helm Charts. Supports deployment of Github Variables and Github Secrets to Kubernetes as ConfigMaps and Secrets respectively. This action also support custom environment variables.
 
 ## Helm Chart Format
 
-The `values.yaml` needs to have variables for configuring secrets and configmaps.
+The `values.yaml` needs to have variables for configuring secrets and configmaps. These variable names can be specified in the action inputs.
 
 ```yml
 config: []
 secrets: []
+envVars: []
 ```
 
 Both config and secrets must be array of objects with 2 fields:
 * `key`
+* `value`
+
+Environment variables must be of array of objects with 2 fields:
+* `name`
 * `value`
 
 The corresponding configmap.yaml
@@ -43,6 +48,33 @@ data:
   {{- range .Values.secrets }}
   {{ .key | quote }}: {{ .value | b64enc | quote }}
   {{- end }}
+```
+
+A snippet of the corresponding deployment.yaml
+
+```yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "auth-service.fullname" . }}
+  labels:
+    {{- include "auth-service.labels" . | nindent 4 }}
+spec:
+  .
+  .
+  .
+  template:
+    .
+    .
+    .
+    spec:
+      containers:
+        - name: {{ .Chart.name }}
+          env:
+          {{- range .Values.envVars }}
+          - name: {{ .name }}
+            value: {{ .value | quote }}
+          {{- end }}
 ```
 
 ## Github Variables & Secrets
@@ -85,7 +117,7 @@ jobs:
         uses: k0r0pt/helm-deploy@v1
         with:
           helmChartUrl: oci://myregistry.example.com/mycompanyinc/auth-service
-          helmChartVersion: 0.1.1
+          helmChartVersion: 1.2.3
           registryUsername: myhelmregistryuser
           registryPassword: mySuperSecretPassword # Don't use this as your password, dahoy!
           # name: auth-service - This is not needed since this name is the same as the chart name in the helmChartUrl above.
@@ -94,7 +126,9 @@ jobs:
           namespace: project-x
           helmConfigMapVariableName: config
           helmSecretVariableName: secrets
+          helmEnvVarVariableName: envVars
           kubeConfig: ${{ secrets.KUBE_CONFIG }}
           secrets: ${{ secrets | toJson }}
           variables: ${{ vars | toJson }}
+          environmentVariables: '{ "NODE_OPTIONS": "--max-old-space-size=8192", "JAVA_OPTS": "-Xms128m -Xmx256g", "SPRING_PROFILES_ACTIVE": "k8s,dev" }'
 ```
