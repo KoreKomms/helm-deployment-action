@@ -28,7 +28,7 @@ jobs:
       - name: dryRun
         uses: ./
         with:
-          helmChartUrl: oci://registry.k0r0pt.int/k0r0pt/auth-service
+          helmChartUrl: oci://myregistry.example.com/mycompanyinc/auth-service
           helmChartVersion: 1.2.3
           githubSecretVariablePrefix: PROJECTX
           deploymentEnvironment: DEV
