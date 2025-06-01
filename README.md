@@ -114,7 +114,7 @@ jobs:
   helm-deploy:
     steps:
       - name: Deploy
-        uses: k0r0pt/helm-deploy@v1
+        uses: KoreKomms/helm-deployment-action@v1
         with:
           helmChartUrl: oci://myregistry.example.com/mycompanyinc/auth-service
           helmChartVersion: 1.2.3
