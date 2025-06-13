@@ -18,7 +18,12 @@ const helmSecretVariableName = process.env.HELM_SECRET_VARIABLE_NAME;
 const helmEnvVarVariableName = process.env.HELM_ENV_VAR_VARIABLE_NAME;
 const tag = process.env.TAG;
 
-let helmDeploymentCommand = `helm --kubeconfig .kubeConfig --kube-context ${environment} upgrade ${name} ${dryRun ? '\\\n  ' : ''}--install ${dryRun ? '\\\n  ' : ''}--create-namespace ${dryRun ? '\\\n  ' : ''}--namespace ${namespace} ${dryRun ? '\\\n  ' : ''}--set image.tag=${tag} ${dryRun ? '\\\n  ' : ''}`;
+let helmDeploymentCommand = `helm upgrade ${name} \\
+  --install \\
+  --create-namespace \\
+  --namespace ${namespace} \\
+  --set image.tag=${tag} \\
+  `;
 
 if (dryRun) {
   console.log('Executing Dry Run...');
@@ -66,31 +71,38 @@ Object.keys(variables).forEach((variableName) => {
   }
 });
 
-Object.keys(environmentVariables).forEach((environmentVariableName) => helmEnvVars.push({ name: environmentVariableName, value: environmentVariables[environmentVariableName].replace(',', '\\,') }));
+Object.keys(environmentVariables).forEach((environmentVariableName) => helmEnvVars.push({ name: environmentVariableName, value: environmentVariables[environmentVariableName] }));
+
+// We need to escape all the Go sequences.
+// Reference - https://stackoverflow.com/a/63636047/4546963
 
 helmSecrets.forEach((dto, idx) => {
-  helmDeploymentCommand = helmDeploymentCommand.concat(`--set ${helmSecretVariableName}[${idx}].key='${dto.key}' ${dryRun ? '\\\n  ' : ''}`);
-  helmDeploymentCommand = helmDeploymentCommand.concat(`--set ${helmSecretVariableName}[${idx}].value='${dryRun ? '<REDACTED>' : dto.value}' ${dryRun ? '\\\n  ' : ''}`);
+  helmDeploymentCommand = helmDeploymentCommand.concat(`--set ${helmSecretVariableName}[${idx}].key='${dto.key}' \\\n  `);
+  helmDeploymentCommand = helmDeploymentCommand.concat(`--set ${helmSecretVariableName}[${idx}].value='${dryRun ? '<REDACTED>' : escapeGoSpecialChars(dto.value)}' \\\n  `);
 });
 
 helmConfigMaps.forEach((dto, idx) => {
-  helmDeploymentCommand = helmDeploymentCommand.concat(`--set ${helmConfigMapVariableName}[${idx}].key='${dto.key}' ${dryRun ? '\\\n  ' : ''}`);
-  helmDeploymentCommand = helmDeploymentCommand.concat(`--set ${helmConfigMapVariableName}[${idx}].value='${dryRun ? '<REDACTED>' : dto.value}' ${dryRun ? '\\\n  ' : ''}`);
+  helmDeploymentCommand = helmDeploymentCommand.concat(`--set ${helmConfigMapVariableName}[${idx}].key='${dto.key}' \\\n  `);
+  helmDeploymentCommand = helmDeploymentCommand.concat(`--set ${helmConfigMapVariableName}[${idx}].value='${dryRun ? '<REDACTED>' : escapeGoSpecialChars(dto.value)}' \\\n  `);
 });
 
 helmEnvVars.forEach((dto, idx) => {
-  helmDeploymentCommand = helmDeploymentCommand.concat(`--set ${helmEnvVarVariableName}[${idx}].name='${dto.name}' ${dryRun ? '\\\n  ' : ''}`);
-  helmDeploymentCommand = helmDeploymentCommand.concat(`--set ${helmEnvVarVariableName}[${idx}].value='${dto.value}' ${dryRun ? '\\\n  ' : ''}`);
+  helmDeploymentCommand = helmDeploymentCommand.concat(`--set ${helmEnvVarVariableName}[${idx}].name='${dto.name}' \\\n  `);
+  helmDeploymentCommand = helmDeploymentCommand.concat(`--set ${helmEnvVarVariableName}[${idx}].value='${dryRun ? '<REDACTED>' : escapeGoSpecialChars(dto.value)}' \\\n  `);
 });
 
 if (helmChartVersion) {
-  helmDeploymentCommand = helmDeploymentCommand.concat(`--version ${helmChartVersion} ${dryRun ? '\\\n  ' : ''}`);
+  helmDeploymentCommand = helmDeploymentCommand.concat(`--version ${helmChartVersion} \\\n  `);
 }
 
 helmDeploymentCommand = helmDeploymentCommand.concat(helmChartUrl);
 
 if (dryRun) {
-  console.log(`This is a Dry Run. Install command to be run: ${helmDeploymentCommand}`);
+  console.log(`This is a Dry Run. Install command to be run: \n${helmDeploymentCommand}`);
 } else {
-  execSync(helmDeploymentCommand);
+  console.log(execSync(helmDeploymentCommand).toString('utf-8'));
+}
+
+function escapeGoSpecialChars(value: string): string {
+  return value.split(',').join('\\,').split('.').join('\\.').split('{').join('\\{').split('[').join('\\[').split(']').join('\\]').split('}').join('\\}');
 }
