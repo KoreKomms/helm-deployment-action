@@ -19,6 +19,8 @@ const helmEnvVarVariableName = process.env.HELM_ENV_VAR_VARIABLE_NAME;
 const tag = process.env.TAG;
 
 let helmDeploymentCommand = `helm upgrade ${name} \\
+  --kubeconfig .kubeConfig \\
+  --kube-context ${environment} \\
   --install \\
   --create-namespace \\
   --namespace ${namespace} \\
@@ -64,9 +66,9 @@ Object.keys(variables).forEach((variableName) => {
         }
         helmConfigMaps.push({ key: varValue.key, value: varValue.value.replace(',', '\\,') });
       }
-    } catch (e: unknown) {
-      console.error(`Misconfigured Github Variable: ${variableName}. Please correct and re-run.`);
-      throw e;
+    } catch (err: unknown) {
+      console.error(`Misconfigured Github Variable: ${variableName}. Please correct and re-run.`, err);
+      process.exit(123);
     }
   }
 });
@@ -100,7 +102,22 @@ helmDeploymentCommand = helmDeploymentCommand.concat(helmChartUrl);
 if (dryRun) {
   console.log(`This is a Dry Run. Install command to be run: \n${helmDeploymentCommand}`);
 } else {
-  console.log(execSync(helmDeploymentCommand).toString('utf-8'));
+  try {
+    console.log(execSync(helmDeploymentCommand).toString('utf-8'));
+  } catch (err: unknown) {
+    if (err instanceof Error) {
+      helmSecrets.forEach((dto) => sanitize(err, dto.value));
+      helmConfigMaps.forEach((dto) => sanitize(err, dto.value));
+      helmEnvVars.forEach((dto) => sanitize(err, dto.value));
+    }
+    console.error('Error while trying to install helmchart', err);
+    process.exit(223);
+  }
+}
+
+function sanitize(err: Error, secret: string) {
+  err.message = err.message.replace(escapeGoSpecialChars(secret), '<REDACTED>');
+  err.stack = err.stack?.replace(escapeGoSpecialChars(secret), '<REDACTED>');
 }
 
 function escapeGoSpecialChars(value: string): string {
